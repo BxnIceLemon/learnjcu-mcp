@@ -58,13 +58,13 @@ learnjcu upcoming --account jc123456       # 某条命令用指定账号（也�
 ```bash
 learnjcu login                                     # 登录（等同于 npm run login）
 learnjcu upcoming --days 14                        # 所有科目里近期要交的项目
-learnjcu submissions BU2001 Essay                  # 作业的提交设置，以及你的每次提交
-learnjcu submit BU2001 Essay report.pdf --dry-run  # 只显示要发送的内容
-learnjcu submit BU2001 Essay report.pdf            # 作为一次新提交发送（会先确认）
-learnjcu submit BU2001 Reflection -m "我的回答"     # 只交文字
+learnjcu submissions AB1001 Essay                  # 作业的提交设置，以及你的每次提交
+learnjcu submit AB1001 Essay report.pdf --dry-run  # 只显示要发送的内容
+learnjcu submit AB1001 Essay report.pdf            # 作为一次新提交发送（会先确认）
+learnjcu submit AB1001 Reflection -m "我的回答"     # 只交文字
 ```
 
-- `<course>` 可以写科目代码，如 `BU2001`，会匹配这个代码最新的科目网站；也可以写完整代码，如 `26-BU2001-SIN-CAM-TR3`，或课程 ID，如 `_123456_1`。
+- `<course>` 可以写科目代码，如 `AB1001`，会匹配这个代码最新的科目网站；也可以写完整代码，如 `26-AB1001-CNS-INT-TR1`，或课程 ID，如 `_123456_1`。
 - `<assignment>` 可以写作业标题里唯一的一段文字，也可以写内容 ID 或成绩列 ID。
 - `submit` 适用于没有题目的 Ultra 作业（就是网页上添加文件或文字、再点“提交”的那种）。每运行一次就是一次新提交，所以先用 `submissions` 看看作业允许交几次。
 - 文件按原样上传。带题目的作业、小组作业、需要密码或安全浏览器的作业都会被拒绝，请在浏览器里交。链接到外部工具（如 Turnitin）的作业也一样。

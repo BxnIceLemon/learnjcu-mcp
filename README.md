@@ -58,13 +58,13 @@ learnjcu upcoming --account jc123456       # use one account for a command (or s
 ```bash
 learnjcu login                                     # sign in (same as npm run login)
 learnjcu upcoming --days 14                        # gradebook items due soon, across your subjects
-learnjcu submissions BU2001 Essay                  # an assignment's settings and your attempts on it
-learnjcu submit BU2001 Essay report.pdf --dry-run  # show what would be sent
-learnjcu submit BU2001 Essay report.pdf            # submit as a new attempt (asks first)
-learnjcu submit BU2001 Reflection -m "My answer"   # text only
+learnjcu submissions AB1001 Essay                  # an assignment's settings and your attempts on it
+learnjcu submit AB1001 Essay report.pdf --dry-run  # show what would be sent
+learnjcu submit AB1001 Essay report.pdf            # submit as a new attempt (asks first)
+learnjcu submit AB1001 Reflection -m "My answer"   # text only
 ```
 
-- `<course>` can be a subject code like `BU2001` (matched to your newest subject site with that code), a full code like `26-BU2001-SIN-CAM-TR3`, or a course id like `_123456_1`.
+- `<course>` can be a subject code like `AB1001` (matched to your newest subject site with that code), a full code like `26-AB1001-CNS-INT-TR1`, or a course id like `_123456_1`.
 - `<assignment>` is a unique part of its title, or its content or column id.
 - `submit` works on Ultra assignments without questions (the ones where you add files or text and press Submit). Each run is a new attempt, so check how many attempts the assignment allows: `submissions` shows it.
 - Files are uploaded as they are. Assignments with questions, group assignments, and ones that need a password or a secure browser are refused; use the browser for those. So are items that link to an external tool (such as Turnitin).

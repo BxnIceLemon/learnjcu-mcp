@@ -1,0 +1,5 @@
+node_modules/
+*.tmp.mjs
+session.json
+browser-profile/
+AGENTS.md

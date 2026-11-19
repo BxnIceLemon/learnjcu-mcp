@@ -36,7 +36,7 @@ const WRITE_TOOLS = ['learnjcu_submit', 'learnjcu_update'];
 test('registers every read and write tool by default', async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
-  assert.equal(names.length, 28);
+  assert.equal(names.length, 29);
   assert.ok(names.every((n) => /^(learnjcu|mystudent|studentfirst)_/.test(n)), 'every tool belongs to a service');
   for (const n of [
     'learnjcu_login',
@@ -45,6 +45,7 @@ test('registers every read and write tool by default', async () => {
     'mystudent_status',
     'mystudent_overview',
     'mystudent_study_plan',
+    'mystudent_page',
     'studentfirst_login',
     'studentfirst_status',
     'studentfirst_overview',

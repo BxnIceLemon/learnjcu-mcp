@@ -174,8 +174,190 @@ export function parseStudyPlan(text) {
   };
 }
 
-/** Renders the My Study page in a hidden browser and returns its text. */
-async function renderStudyPage() {
+// --- Pages behind the dashboard, rendered in a hidden browser
+
+/**
+ * The pages this reads, with the tabs (sections) it opens on each. Only these
+ * tab handles are ever clicked; no button, link or form control is touched,
+ * so nothing is saved, requested or submitted.
+ */
+export const PAGES = {
+  details: {
+    fn: '$SC.STUDENTPRFL.MNT',
+    title: 'My Details',
+    sections: {
+      summary: 'Tab_PersonalDetailsSection',
+      contacts: 'Tab_StudentContactsListSection',
+      education: 'Tab_EducationalBackgroundDetailsSection',
+      sanctions: 'Tab_StudentSanctionListSection',
+      communication: 'Tab_StudentCommunicationListSection',
+      forms: 'Tab_StudentFormListSection',
+    },
+  },
+  study: {
+    fn: STUDY_HISTORY,
+    title: 'My Study',
+    sections: {
+      course: 'Tab_StudyPlanOutlineSection',
+      overview: 'Tab_StudentStudyPlanOverviewSection',
+      reports: 'Tab_SelfServiceReportsSection',
+      withdrawal: 'Tab_UnitWithdrawalSection',
+    },
+  },
+  class_registrations: { fn: '$STT.STUCLASSREG.MNT', title: 'My Class Registrations' },
+  finances: {
+    fn: '$SFN.FINANCEPRFL.MNT',
+    title: 'My Finances',
+    sections: {
+      summary: 'Tab_StudentFinanceAnalyticsSection',
+      transactions: 'Tab_StudentTransactionManagementWrapperSection',
+      receipts: 'Tab_FinancePaymentReceiptsSection',
+      forms: 'Tab_FinanceProfileFormListSection',
+      preferences: 'Tab_StudentFinanceOptionsSection',
+    },
+  },
+  tasks: { fn: '$SST.STUMYTASKS.WIZ', title: 'My Tasks' },
+  calendar: { fn: '$STT.STUCAL.LST', title: 'My Calendar' },
+  forms: { fn: '$TB.FRM.MYFRMDEF.ENQ', title: 'Forms (available)' },
+  form_responses: { fn: '$TB.FRM.MYFRMINT.ENQ', title: 'Forms (your drafts and submitted forms)', fromTile: '$TB.FRM.MYFRMDEF.ENQ' },
+  applications: { fn: 'JC.APO.STU.01.DSH', title: 'My Applications and Offers' },
+};
+
+/**
+ * Runs in the page: turns a part of it into lines of text. A form field
+ * becomes "Label: value" (empty fields are left out), a grid becomes one
+ * line per row, and filter panels, calendar grids and buttons are skipped.
+ */
+export function extractLines(root) {
+  const ACTION =
+    /^(View|Fill out|Respond|Request|Confirm|Select|Remove|Save|Edit|Show less|Show more|More|Clear|Clear all|Filters|Sort by|Additional Information|Edit Application|View Application|Respond to Offer|Pay Now|Review|Add to Cart|Previous|Finish|Help|Show Preview|Responses|Starred|Plan and enrol|Link to JCU Course and Subject Handbook|\*|Select Payment Option|Change to Accessibility Mode|No files selected)$/;
+  const SKIP = '.fltrCntr, .enquiryfilters, .t1cal-background-rows, .t1cal-background-columns, .t1cal-time-grid-container .t1cal-time, .slick-header, .rowActions, .template, .screensaver';
+  const out = [];
+  const push = (t) => {
+    t = String(t ?? '').replace(/[ \t ]+/g, ' ').trim();
+    if (t && !ACTION.test(t) && out[out.length - 1] !== t) out.push(t);
+  };
+  const hidden = (el) => {
+    const cs = getComputedStyle(el);
+    return cs.display === 'none' || cs.visibility === 'hidden';
+  };
+  const label = (el) => {
+    try {
+      return JSON.parse(el.getAttribute('data-t1-control') || '{}').LabelText;
+    } catch {
+      return undefined;
+    }
+  };
+  const value = (el) => {
+    const span = el.querySelector('.readonlyTextBoxSpan');
+    if (span && !hidden(span)) return span.innerText.trim();
+    const box = el.querySelector('input[type=checkbox]');
+    if (box) return box.checked ? 'Yes' : 'No';
+    const sel = el.querySelector('select');
+    if (sel) return sel.selectedOptions[0]?.text?.trim() ?? '';
+    const inp = el.querySelector('input:not([type=hidden]), textarea');
+    return inp ? inp.value.trim() : '';
+  };
+  // A field is the innermost labelled control: a section or panel is labelled
+  // too, but holds labelled controls of its own.
+  const isField = (el) => {
+    if (!el.hasAttribute('data-t1-control') || !label(el)) return false;
+    if ([...el.querySelectorAll('[data-t1-control]')].some((d) => label(d))) return false;
+    const spans = el.querySelectorAll('.readonlyTextBoxSpan').length;
+    const inputs = el.querySelectorAll('input:not([type=hidden]), select, textarea').length;
+    return spans + inputs > 0 && spans <= 1 && inputs <= 2;
+  };
+  const grid = (canvas) => {
+    const g = canvas.closest('.slick-viewport')?.parentElement;
+    const heads = [...(g?.querySelectorAll('.slick-header-column') ?? [])].map((h) => h.innerText.trim());
+    for (const row of canvas.querySelectorAll('.slick-row')) {
+      const cells = [...row.querySelectorAll('.slick-cell')]
+        .map((c) => {
+          const i = Number(c.className.match(/\bl(\d+)\b/)?.[1]);
+          const v = c.innerText.trim();
+          return v && !ACTION.test(v) ? `${heads[i] || `Column ${i + 1}`}: ${v}` : null;
+        })
+        .filter(Boolean);
+      if (cells.length) out.push(cells.join(' | '));
+    }
+  };
+  const walk = (node) => {
+    if (node.nodeType === 3) return push(node.textContent);
+    if (node.nodeType !== 1) return;
+    const el = node;
+    if (['SCRIPT', 'STYLE', 'BUTTON', 'svg', 'NOSCRIPT'].includes(el.tagName) || el.matches(SKIP) || hidden(el)) return;
+    if (el.classList.contains('grid-canvas')) return grid(el);
+    if (isField(el)) {
+      const v = value(el);
+      if (v && v !== '-') out.push(`${label(el)}: ${v}`);
+      return;
+    }
+    if (!el.querySelector('[data-t1-control], .grid-canvas') && !el.querySelector(SKIP)) {
+      for (const l of el.innerText.split('\n')) push(l);
+      return;
+    }
+    for (const c of el.childNodes) walk(c);
+  };
+  walk(root);
+  return out;
+}
+
+// The link to a page, with the hash MyStudent signs it with: from the
+// dashboard's function list, or from inside a tile for pages that only a
+// tile links to.
+async function pageLink(def) {
+  const wp = await workplace();
+  const f = (wp.Functions ?? []).find((x) => x.FunctionName === (def.fromTile ?? def.fn));
+  if (!f?.Link) throw new Error(`MyStudent does not offer "${def.title}" to this account.`);
+  if (!def.fromTile) return new URL(f.Link, MYSTUDENT_BASE).toString();
+  const link = new URL(f.Link, MYSTUDENT_BASE);
+  const item = {
+    FunctionName: f.FunctionName,
+    MergeFuncName: f.MergeFuncName ?? '',
+    ExpiryTime: link.searchParams.get('t'),
+    Hash: link.searchParams.get('h'),
+    Suite: link.searchParams.get('suite'),
+    Role: wp.Name,
+    IsHyper: true,
+  };
+  const r = await post(`/Workplace/FrontOffice/GetActiveTileData?f=${encodeURIComponent(f.FunctionName)}`, { Items: [item], RequestData: {} });
+  const $ = cheerio.load(String(r?.Items?.[0]?.HtmlContent ?? ''));
+  const href = $('a[href]')
+    .map((_, a) => $(a).attr('href'))
+    .get()
+    .find((h) => new URL(h, MYSTUDENT_BASE).searchParams.get('f') === def.fn);
+  if (!href) throw new Error(`MyStudent did not link to "${def.title}".`);
+  return new URL(href, MYSTUDENT_BASE).toString();
+}
+
+// Waits until no request is in flight and the text stopped changing.
+async function settle(page, { max = 20000, min = 800 } = {}) {
+  const t0 = Date.now();
+  let quiet = 0;
+  let last = -1;
+  while (Date.now() - t0 < max) {
+    await page.waitForTimeout(250);
+    const [n, len] = await page.evaluate(() => [window.__learnjcuInflight ?? 0, document.body?.innerText.length ?? 0]);
+    quiet = n === 0 && len === last ? quiet + 250 : 0;
+    last = len;
+    if (quiet >= 1500 && Date.now() - t0 > min) return;
+  }
+}
+
+/**
+ * Opens one MyStudent page in a hidden browser and reads it: the page itself,
+ * then each of its sections (or only `section`). Resolves to
+ * { page, title, header, sections: [{ section, lines }] } or, for a page
+ * without sections, { page, title, lines }.
+ */
+export async function readPage({ page: key, section } = {}) {
+  const def = PAGES[key];
+  if (!def) throw new Error(`Unknown MyStudent page "${key}". Pages: ${Object.keys(PAGES).join(', ')}`);
+  const names = def.sections ? Object.keys(def.sections) : [];
+  if (section && !def.sections?.[section]) {
+    throw new Error(names.length ? `"${key}" has the sections ${names.join(', ')}` : `"${key}" has no sections`);
+  }
+  const url = await pageLink(def);
   const s = session();
   const { context, close } = await launchHidden();
   try {
@@ -183,15 +365,52 @@ async function renderStudyPage() {
       s.cookies.map(({ name, value, domain, path, expires }) => ({ name, value, domain, path: path || '/', expires: expires > 0 ? expires : -1, secure: true })),
     );
     const page = await context.newPage();
-    const url = `${MYSTUDENT_BASE}/Workplace/FrontOffice/RedirectToFunction?f=${encodeURIComponent(STUDY_HISTORY)}&suite=SM`;
+    await page.addInitScript(() => {
+      window.__learnjcuInflight = 0;
+      const send = XMLHttpRequest.prototype.send;
+      XMLHttpRequest.prototype.send = function (...a) {
+        window.__learnjcuInflight++;
+        this.addEventListener('loadend', () => window.__learnjcuInflight--);
+        return send.apply(this, a);
+      };
+    });
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
     if (/\/LogOn\b/i.test(page.url()) || new URL(page.url()).host !== MYSTUDENT_HOST) throw expired();
-    // The course structure loads after the page; wait for its first subject.
+    // The page builds itself after loading: wait for its first section, or a list.
     await page
-      .waitForFunction(() => /\n[A-Z]{2,4}\d{4} - .+\n(Core|Option|Elective)/.test(document.body?.innerText ?? ''), null, { timeout: 30000 })
+      .waitForFunction(() => document.querySelector('[id^="Tab_"]') || /No records found|records?\.|forms\.|INFORMATION MESSAGE/.test(document.body?.innerText ?? ''), null, {
+        timeout: 25000,
+      })
       .catch(() => {});
-    await page.waitForTimeout(800);
-    return await page.evaluate(() => document.body?.innerText ?? '');
+    await settle(page);
+    if (/Unable to Access the Requested Function/i.test(await page.evaluate(() => document.body?.innerText ?? ''))) {
+      throw new Error(`MyStudent refused to open "${def.title}" for this account.`);
+    }
+    const area = () => document.querySelector('.mainContent') ?? document.querySelector('form') ?? document.body;
+    if (!def.sections) {
+      const lines = await page.evaluate(`(${extractLines})((${area})())`);
+      return { page: key, title: def.title, lines };
+    }
+    // The header above the sections (student and course), without the tab list.
+    const header = (
+      await page.evaluate(() => {
+        const h = document.querySelector('.formTitleContainer');
+        return h ? h.innerText : '';
+      })
+    )
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const sections = [];
+    for (const name of section ? [section] : names) {
+      const id = def.sections[name];
+      await page.evaluate((tab) => document.getElementById(`${tab}_Handle`)?.click(), id);
+      await page.waitForFunction((tab) => (document.getElementById(tab)?.innerText.trim().length ?? 0) > 0, id, { timeout: 20000 }).catch(() => {});
+      await settle(page, { max: 15000, min: 300 });
+      const lines = await page.evaluate(`(${extractLines})(document.getElementById(${JSON.stringify(id)}))`);
+      sections.push({ section: name, lines: lines ?? [] });
+    }
+    return { page: key, title: def.title, ...(header.length ? { header } : {}), sections };
   } finally {
     await close().catch(() => {});
   }
@@ -199,7 +418,8 @@ async function renderStudyPage() {
 
 /** Your course and every subject in its structure, with its status. */
 export async function studyPlan() {
-  const plan = parseStudyPlan(await renderStudyPage());
+  const r = await readPage({ page: 'study', section: 'course' });
+  const plan = parseStudyPlan([...(r.header ?? []), ...r.sections[0].lines].join('\n'));
   if (!plan.subjects.length) throw new Error('MyStudent did not show the course structure in time. Try again in a moment.');
   return plan;
 }

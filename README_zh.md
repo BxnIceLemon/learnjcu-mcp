@@ -5,7 +5,7 @@
 非官方的詹姆斯库克大学（James Cook University）学生网站工具，包含一个 MCP 服务器和一个命令行工具。你在真实浏览器里自己登录，工具复用这个会话。
 
 - **LearnJCU**（`learn.jcu.edu.au`，Blackboard Learn Ultra）：科目、公告、课程内容、成绩、截止日期和日历，数据来自 Blackboard 的 REST API。唯一会改动数据的操作，是向 Ultra 作业提交文件或文字。
-- **MyStudent**（`jcu.t1cloud.com`，JCU 的学生事务系统）：首页信息（联系方式、学习计划、选课登记、待缴费用、待办任务、表单），以及课程结构和每门科目的状态。
+- **MyStudent**（`jcu.t1cloud.com`，JCU 的学生事务系统）：首页，以及首页背后每个页面的完整内容：个人信息和联系方式、教育背景、处分记录、课程结构和概览、普查日和退课截止日、选课登记、财务（应缴金额、交易、收据、付款偏好）、待办任务、日历、表单和你填过的表单、入学申请和录取。
 - **StudentFirst**（`studentfirst.jcu.edu.sg`，JCU 新加坡校区）：未来 8 天的课表、课堂和校园出勤率、每节课的出勤记录、请假申请和通知。
 
 MyStudent 和 StudentFirst 在这里都只读。
@@ -16,7 +16,7 @@ MyStudent 和 StudentFirst 在这里都只读。
 - 每个已保存的账号都有自己的专用浏览器配置（`~/.learnjcu-mcp/accounts/<账号>/browser-profile`），和你日常用的配置分开。工具不会读取你平时浏览器里的 cookie 或保存的密码。
 - 会话按账号保存在 `~/.learnjcu-mcp/accounts/<账号>/` 下（LearnJCU 是 `session.json`，另有 `mystudent.json`、`studentfirst.json`），多个人的登录状态不会混在一起，也都不在项目目录里。
 - 每个会话只发往它自己的网站：`learn.jcu.edu.au`、`jcu.t1cloud.com` 或 `studentfirst.jcu.edu.sg`。文件下载跳转到 Blackboard 的文件域名时，会去掉 cookie。唯一的例外是更新检查：每次启动向 `api.github.com` 发一个请求，不带 cookie，也不带账号信息（见[更新](#更新)）。
-- MyStudent 首页用的是它自己网页加载卡片时发的两个 POST 请求，这两个请求只读取数据。学习计划由后台浏览器打开页面后读取文字，不点击任何东西。StudentFirst 只发 GET 请求。
+- MyStudent 首页用的是它自己网页加载卡片时发的两个 POST 请求，这两个请求只读取数据。其他 MyStudent 页面由后台浏览器渲染，用的是全新的空白配置：打开页面，只点击 `src/mystudent.js` 里列出的分区标签，然后读取文字。它从不按任何按钮，所以不会保存、申请、付款或提交任何东西。StudentFirst 只发 GET 请求。
 - 在 LearnJCU 上只发 GET 请求，例外只有作业提交：
   - 在 CLI 里，`submit` 会先显示要发送的内容，问你 `[y/N]`，确认后才发送。加 `--dry-run` 则只显示计划。
   - 在 MCP 里，`learnjcu_submit` 必须带 `confirm: true`，不带就不会发送。工具说明里要求 Agent 先给你看 dry-run 的结果，得到你的同意后才能发送。
@@ -78,6 +78,7 @@ learnjcu submit AB1001 Essay report.pdf            # 作为一次新提交发送
 learnjcu submit AB1001 Reflection -m "我的回答"     # 只交文字
 
 learnjcu mystudent                                 # MyStudent 首页
+learnjcu mystudent finances transactions           # 某个页面（或其中一个分区）的完整内容
 learnjcu study-plan                                # 课程结构和每门科目的状态
 learnjcu classes                                   # StudentFirst：未来 8 天的课和总体出勤率
 learnjcu attendance AB1001                         # 某个科目每节课的出勤
@@ -152,7 +153,8 @@ tool_timeout_sec = 300   # 等你登录可能超过 Codex 默认的 60 秒
 | `learnjcu_api_get` | 直接 GET 任意 `/learn/api/public/` 接口 |
 | `mystudent_status` / `mystudent_login` | 检查或续期 MyStudent 会话（JCU 单点登录） |
 | `mystudent_overview` | MyStudent 首页：联系方式、学习计划、选课登记、待缴费用、待办任务、日历、表单 |
-| `mystudent_study_plan` | 课程结构里的每门科目：在读、已完成、免修或计划中，以及学分减免（约 10 秒） |
+| `mystudent_study_plan` | 课程结构里的每门科目：在读、已完成、免修或计划中，以及学分减免（约 20 秒） |
+| `mystudent_page` | 任意 MyStudent 页面的完整内容（details、study、class_registrations、finances、tasks、calendar、forms、form_responses、applications），或其中一个分区 |
 | `studentfirst_status` / `studentfirst_login` | 检查或续期 StudentFirst 会话（它自己的用户名和密码） |
 | `studentfirst_overview` | 未来 8 天的课、总体课堂和校园出勤率、每个班的出勤情况 |
 | `studentfirst_class_attendance` | 每节课的出勤记录：出勤、缺勤或尚未记录 |
@@ -172,11 +174,12 @@ tool_timeout_sec = 300   # 等你登录可能超过 Codex 默认的 60 秒
 
 ## 已知限制
 
-- 本项目改编自 [minerva-mcp](https://github.com/BxnIceLemon/minerva-mcp)，后者用于利兹大学同样基于 Blackboard Learn Ultra 的 Minerva。LearnJCU 的接口已经用学生账号核对过：个人资料、已选科目、成绩册、课程内容、公告和日历的返回格式都一样。
+- LearnJCU 的接口已经用学生账号核对过：个人资料、已选科目、成绩册、课程内容、公告和日历。
 - 登录需要一台有屏幕的电脑，没有纯终端的登录方式。
 - StudentFirst 是 JCU 新加坡校区的网站，其他校区的学生没有 StudentFirst 账号。
-- MyStudent 目前只读取首页和学习计划，其他页面（比如完整的财务明细、日历）还没有读取。MyStudent 和 StudentFirst 上的任何内容都不会被修改：选课、表单、缴费、调课和请假都请在网站上办理。
-- 作业提交还没在 LearnJCU 上真正发送过。它发的是 Minerva 上 Blackboard Ultra 网页本身发的那套请求，在 Minerva 上真实测试过；LearnJCU 用的是同一系列的 Ultra 版本，但提交前请先用 dry run 检查。
+- MyStudent 和 StudentFirst 上的任何内容都不会被修改：选课、退课、表单、缴费、申请报告（成绩单、在读证明）、调课和请假都请在网站上办理。
+- 读取一个 MyStudent 页面要 10 到 20 秒，读全部分区更久；如果客户端的工具超时较短，请一次只读一个分区。
+- 作业提交还没在 LearnJCU 上真正发送过。它发的请求和 Blackboard Ultra 网页本身发的一样，但提交前请先用 dry run 检查。
 - Turnitin、Echo360 等第三方 LTI 工具里的内容拿不到。
 - 请合理使用，遵守 JCU 的 IT 使用政策和学术诚信规定。
 

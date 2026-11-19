@@ -380,6 +380,28 @@ tool(
   () => mystudent.studyPlan(),
 );
 
+const pageNames = Object.keys(mystudent.PAGES);
+const sectionList = Object.entries(mystudent.PAGES)
+  .map(([k, v]) => (v.sections ? `${k} (${Object.keys(v.sections).join(', ')})` : k))
+  .join('; ');
+
+tool(
+  'mystudent_page',
+  'Read one MyStudent page in full, in a hidden browser (about 10 s, plus 3-5 s for each section). Pages: ' +
+    'details (personal details, contacts and addresses, educational background, sanctions, communications, forms); ' +
+    'study (course structure, course overview, self-service reports on offer, withdrawal: census and last-withdrawal dates per subject); ' +
+    'class_registrations; finances (summary, outstanding transactions and amounts payable, payment receipts, forms, payment preferences); ' +
+    'tasks (enrolment tasks still to do); calendar (this week); forms (forms you can fill out); form_responses (your draft and submitted forms); ' +
+    `applications (course applications and offers). Sections: ${sectionList}. Pass section to read only one (faster). ` +
+    'This only reads: it never saves, requests, pays, enrols, withdraws or submits anything; tell the user to do those on the MyStudent website. ' +
+    'Use when the user asks for something in MyStudent that mystudent_overview does not show in full.',
+  {
+    page: z.enum(pageNames).describe('Which page to read'),
+    section: z.string().optional().describe('One section of the page, e.g. "contacts" on details or "withdrawal" on study; omit for all'),
+  },
+  mystudent.readPage,
+);
+
 // --- StudentFirst
 
 tool(

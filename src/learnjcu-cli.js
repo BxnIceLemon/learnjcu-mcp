@@ -28,6 +28,8 @@ Browse LearnJCU
 
 Browse MyStudent
   mystudent                               Dashboard: details, study plan, payments, tasks, forms
+  mystudent <page> [section]              Read a page in full: details, study, class_registrations,
+                                          finances, tasks, calendar, forms, form_responses, applications
   study-plan                              Your course and the status of every subject in it
 
 Browse StudentFirst (JCU Singapore)
@@ -124,7 +126,19 @@ const commands = {
     for (const i of r.items) console.log(`${fmtDate(i.due)}  ${i.item}  (${i.course})${i.status ? `  [${i.status}]` : ''}`);
   },
 
-  async mystudent(_, o) {
+  async mystudent(args, o) {
+    if (args.length) {
+      const r = await mystudent.readPage({ page: args[0], section: args[1] });
+      if (o.json) return r;
+      console.log(r.title);
+      for (const l of r.header ?? []) console.log(l);
+      for (const l of r.lines ?? []) console.log(`  ${l}`);
+      for (const sec of r.sections ?? []) {
+        console.log(`\n[${sec.section}]`);
+        for (const l of sec.lines) console.log(`  ${l}`);
+      }
+      return;
+    }
     const r = await mystudent.overview();
     if (o.json) return r;
     for (const t of r.tiles) {

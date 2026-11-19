@@ -89,3 +89,13 @@ test('reads the course and every subject with its status from the My Study page'
   assert.deepEqual(r.subjects[0], { code: 'AB1001', name: 'Example Subject', kind: 'Core', status: 'Enrolled in 2026, Trimester 1, Townsville' });
   assert.deepEqual(r.summary, { enrolled: ['AB1001'], completed: ['AB1003'], exempt: ['AB1002'], planned: ['AB2001'] });
 });
+
+test('reads only the pages and sections it knows, before touching the network', async () => {
+  const { readPage, PAGES } = await import('../src/mystudent.js');
+  assert.deepEqual(Object.keys(PAGES.details.sections), ['summary', 'contacts', 'education', 'sanctions', 'communication', 'forms']);
+  await assert.rejects(readPage({ page: 'payments' }), /Unknown MyStudent page "payments"/);
+  await assert.rejects(readPage({ page: 'details', section: 'bank' }), /has the sections summary, contacts/);
+  await assert.rejects(readPage({ page: 'tasks', section: 'x' }), /has no sections/);
+  // Every section is a tab handle id; nothing else on a page is ever clicked.
+  for (const p of Object.values(PAGES)) for (const id of Object.values(p.sections ?? {})) assert.match(id, /^Tab_\w+Section$/);
+});

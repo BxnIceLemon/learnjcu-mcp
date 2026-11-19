@@ -15,7 +15,7 @@ You should get a reply within 7 days.
 
 ## What counts
 
-- A way for session cookies to leave `learn.jcu.edu.au`
+- A way for session cookies to leave the site they belong to (`learn.jcu.edu.au`, `jcu.t1cloud.com` for MyStudent, `studentfirst.jcu.edu.sg`)
 - The update check sending anything to `api.github.com` beyond the commit id, or updating without the user's confirmation
 - A way to send a non-GET request other than the assignment submission in `src/learnjcu-write.js`
 - A way for a submission to send without confirmation: skipping the CLI prompt, or the MCP tool sending without `confirm: true`

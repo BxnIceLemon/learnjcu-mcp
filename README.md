@@ -2,17 +2,22 @@
 
 **English** | [简体中文](README_zh.md)
 
-An unofficial MCP server and command-line tool for LearnJCU, James Cook University's Blackboard Learn Ultra site (`learn.jcu.edu.au`). You sign in yourself in a real browser window, and the tools reuse that session. Data comes from Blackboard's REST API.
+An unofficial MCP server and command-line tool for James Cook University's student sites. You sign in yourself in a real browser window, and the tools reuse that session.
 
-It reads your subjects, announcements, content, grades, deadlines and calendar. The only action that changes anything is submitting files or text to an Ultra assignment.
+- **LearnJCU** (`learn.jcu.edu.au`, Blackboard Learn Ultra): your subjects, announcements, content, grades, deadlines and calendar, through Blackboard's REST API. Submitting files or text to an Ultra assignment is the only action that changes anything.
+- **MyStudent** (`jcu.t1cloud.com`, JCU's student administration portal): the dashboard (contact details, study plan, class registrations, payments, tasks, forms) and your course structure with the status of every subject.
+- **StudentFirst** (`studentfirst.jcu.edu.sg`, JCU Singapore): classes in the next 8 days, class and campus attendance, the attendance of every session, leave applications and notices.
+
+MyStudent and StudentFirst are read-only here.
 
 ## Security
 
-- Sign-in happens in your system default browser (Edge, Chrome, Brave and other Chromium browsers), on JCU's own sign-in page. You type your password there yourself; the code never sees it.
+- Sign-in happens in your system default browser (Edge, Chrome, Brave and other Chromium browsers), on JCU's own sign-in pages. You type your password there yourself; the code never sees it. StudentFirst has its own user name and password; if you let the browser save it in the sign-in window, it stays in that account's browser profile and later refreshes use it without you.
 - Each saved account has its own browser profile (`~/.learnjcu-mcp/accounts/<account>/browser-profile`), separate from your everyday profile. The tools never read your normal browser's cookies or saved passwords.
-- Sessions are saved per account in `~/.learnjcu-mcp/accounts/<account>/session.json`, so several people's sign-ins never mix. None of this is inside the project folder.
-- Requests only go to `learn.jcu.edu.au`. When a file download redirects to Blackboard's file host, the session cookie is dropped. The one exception is the update check: a single request to `api.github.com` per start, with no cookies or account data (see [Updates](#updates)).
-- Only GET requests, except submitting to an assignment:
+- Sessions are saved per account in `~/.learnjcu-mcp/accounts/<account>/` (`session.json` for LearnJCU, `mystudent.json`, `studentfirst.json`), so several people's sign-ins never mix. None of this is inside the project folder.
+- Each session only goes to its own site: `learn.jcu.edu.au`, `jcu.t1cloud.com` or `studentfirst.jcu.edu.sg`. When a file download redirects to Blackboard's file host, the session cookie is dropped. The one exception is the update check: a single request to `api.github.com` per start, with no cookies or account data (see [Updates](#updates)).
+- MyStudent's dashboard is read with the two POST requests its own page uses to load its tiles; they only read. The study plan is rendered in a hidden browser that opens the page and reads its text, without clicking anything. StudentFirst pages are read with GET requests only.
+- On LearnJCU, only GET requests, except submitting to an assignment:
   - In the CLI, `submit` shows what it will send and asks `[y/N]` first. `--dry-run` only shows the plan.
   - In MCP, `learnjcu_submit` needs `confirm: true`, and the agent is told to show you a dry run and get your yes first. Without `confirm: true` nothing is sent.
 - There is no telemetry.
@@ -29,9 +34,18 @@ npm run check     # prints your name and current subjects
 
 The login opens your default browser at LearnJCU, which sends you to JCU's sign-in page.
 
+MyStudent and StudentFirst are signed in for the same account afterwards:
+
+```bash
+npm run login -- --service mystudent      # JCU single sign-on; usually no window at all
+npm run login -- --service studentfirst   # StudentFirst's own user name and password
+```
+
+For StudentFirst, let the browser save the password when it offers to: later refreshes then sign in again by themselves.
+
 Sessions expire after a few hours, but you rarely need to sign in again:
 
-- **Silent refresh.** Every login first tries a hidden window. If the sign-in page still remembers you, the session is renewed in a few seconds with no window.
+- **Silent refresh.** Every login first tries a hidden window. If the sign-in page still remembers you (or, for StudentFirst, the browser has the saved password), the session is renewed in a few seconds with no window.
 - **CLI.** When a `learnjcu` command finds its session expired, it refreshes silently and retries. If you have to sign in, it asks whether to open the sign-in page.
 - **Agent.** When an MCP tool finds its session expired, the server first renews it silently with that account's browser profile and runs the call again, so you usually notice nothing. A submission is not re-run by itself; the agent calls it again. Only if that doesn't work does the tool report the expired session, and the agent (any MCP client) then calls `learnjcu_login`, which opens the sign-in page and asks you to finish.
 
@@ -62,6 +76,12 @@ learnjcu submissions AB1001 Essay                  # an assignment's settings an
 learnjcu submit AB1001 Essay report.pdf --dry-run  # show what would be sent
 learnjcu submit AB1001 Essay report.pdf            # submit as a new attempt (asks first)
 learnjcu submit AB1001 Reflection -m "My answer"   # text only
+
+learnjcu mystudent                                 # MyStudent dashboard
+learnjcu study-plan                                # your course and the status of each subject
+learnjcu classes                                   # StudentFirst: next 8 days and overall attendance
+learnjcu attendance AB1001                         # every session of a subject's classes
+learnjcu leave                                     # your StudentFirst leave applications
 ```
 
 - `<course>` can be a subject code like `AB1001` (matched to your newest subject site with that code), a full code like `26-AB1001-CNS-INT-TR1`, or a course id like `_123456_1`.
@@ -130,6 +150,14 @@ tool_timeout_sec = 300   # waiting for a sign-in can take longer than Codex's 60
 | `learnjcu_list_submissions` | An assignment's submission settings and your attempts, with receipts and files |
 | `learnjcu_submit` | Submit files or text to an Ultra assignment (needs `confirm: true`) |
 | `learnjcu_api_get` | GET any `/learn/api/public/` endpoint directly |
+| `mystudent_status` / `mystudent_login` | Check or refresh the MyStudent session (JCU single sign-on) |
+| `mystudent_overview` | MyStudent dashboard: contact details, study plan, class registrations, payments, tasks, calendar, forms |
+| `mystudent_study_plan` | Your course and every subject in it: enrolled, completed, exempt or planned, plus advanced standing (about 10 s) |
+| `studentfirst_status` / `studentfirst_login` | Check or refresh the StudentFirst session (its own user name and password) |
+| `studentfirst_overview` | Classes in the next 8 days, overall class and campus attendance, attendance per class |
+| `studentfirst_class_attendance` | Every session of your classes and whether you were marked present or absent |
+| `studentfirst_leave_applications` | Your leave applications and their status |
+| `studentfirst_notices` | StudentFirst notices, such as student contract updates and public holidays |
 | `learnjcu_check_update` | Check GitHub for a newer version and list what it adds |
 | `learnjcu_update` | Update this copy to the latest version (needs `confirm: true`) |
 
@@ -146,6 +174,8 @@ tool_timeout_sec = 300   # waiting for a sign-in can take longer than Codex's 60
 
 - Adapted from [minerva-mcp](https://github.com/BxnIceLemon/minerva-mcp), which works with the same Blackboard Learn Ultra platform at the University of Leeds. The LearnJCU API was checked with a student account: profile, enrolled subjects, gradebook columns, content, announcements and calendar all answer the same way.
 - Sign-in needs a computer with a screen; there is no terminal-only sign-in.
+- StudentFirst is JCU Singapore's site; students at other campuses have no StudentFirst account.
+- MyStudent pages other than the dashboard and the study plan (for example the full finance statement or the calendar) are not read yet. Nothing in MyStudent or StudentFirst is changed: enrolment, forms, payments, class requests and leave applications stay on their websites.
 - Submitting has not been sent for real on LearnJCU yet. It sends the requests the Blackboard Ultra web page sends on Minerva, where it was tested; LearnJCU runs the same Ultra version family, but check with a dry run first.
 - Content inside third-party LTI tools such as Turnitin and Echo360 is not available.
 - Please use this responsibly and follow JCU's IT and academic integrity policies.

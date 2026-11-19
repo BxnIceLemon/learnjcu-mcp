@@ -1,10 +1,10 @@
 // Sign-in flows shared by the CLIs and the MCP server. Each login first tries
 // a silent refresh in a hidden window (the browser profile usually still has
-// Microsoft's "Stay signed in" state), and only opens a visible window in the
-// default browser when the user has to act. Passwords and MFA are typed by the
-// user in the browser.
-import { BASE_URL } from './config.js';
-import { saveSession, loadSession, siteCookies, bbRouterField } from './session.js';
+// the JCU sign-in state, and for StudentFirst the password the user let the
+// browser save), and only opens a visible window in the default browser when
+// the user has to act. Passwords and MFA are typed by the user in the browser.
+import { BASE_URL, MYSTUDENT_BASE, MYSTUDENT_HOST, MYSTUDENT_LOGON_URL, STUDENTFIRST_BASE, STUDENTFIRST_HOST } from './config.js';
+import { saveSession, loadSession, siteCookies, cookiesFor, bbRouterField } from './session.js';
 import {
   sessionFile,
   currentAccount,
@@ -18,8 +18,16 @@ import {
 } from './accounts.js';
 import { launch, waitFor, plainCookies, chooseBrowser, hasDisplay, LOGIN_TIMEOUT_MS } from './browser.js';
 
-const SILENT_TIMEOUT_MS = 15 * 1000;
+const SILENT_TIMEOUT_MS = 20 * 1000;
 const FALLBACK_TTL_MS = 3 * 60 * 60 * 1000;
+
+const sameName = (a, b) => String(a ?? '').trim().toLowerCase().replace(/\s+/g, ' ') === String(b ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+
+// A cookie's expiry as an ISO date, or `fallbackMs` from now for a session cookie.
+function cookieExpiry(cookies, name, fallbackMs) {
+  const c = cookies.find((k) => k.name === name);
+  return new Date(c?.expires > 0 ? c.expires * 1000 : Date.now() + fallbackMs).toISOString();
+}
 
 const services = {
   learnjcu: {
@@ -60,6 +68,75 @@ const services = {
       return { userName: user.userName, expiresAt };
     },
   },
+
+  // MyStudent signs in through JCU's single sign-on. Its CiAnywhere.Auth
+  // cookie lasts several days, and the browser profile usually still has the
+  // single sign-on session after that.
+  mystudent: {
+    label: 'MyStudent',
+    startUrl: MYSTUDENT_LOGON_URL,
+    async prepare(page) {
+      // The log-on page offers "Log on using JCU SSO"; take it.
+      await page.click('#BtnSaml', { timeout: 8000 });
+    },
+    async check(context) {
+      const r = await context.request.post(`${MYSTUDENT_BASE}/Workplace/FrontOffice/GetWorkplaceData`, {
+        data: { CachedAt: '', RequestData: {} },
+        headers: { Accept: 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+        failOnStatusCode: false,
+        maxRedirects: 0,
+      });
+      if (!r.ok()) return null;
+      const body = await r.json().catch(() => null);
+      return body?.Data?.Workplaces?.length ? body.Data : null;
+    },
+    async save(context) {
+      const cookies = cookiesFor(await context.cookies(), MYSTUDENT_HOST);
+      const expiresAt = cookieExpiry(cookies, 'CiAnywhere.Auth', 8 * 60 * 60 * 1000);
+      saveSession({ cookies: plainCookies(cookies), savedAt: new Date().toISOString(), expiresAt }, sessionFile('mystudent'));
+      return { expiresAt };
+    },
+  },
+
+  // StudentFirst has its own user name and password, not JCU's single sign-on.
+  // When the user lets the browser save the password, the hidden window finds
+  // it filled in and signs in again by itself.
+  studentfirst: {
+    label: 'StudentFirst',
+    startUrl: `${STUDENTFIRST_BASE}/`,
+    async prepare(page) {
+      const password = page.locator('input[type=password]');
+      await password.waitFor({ timeout: 10000 });
+      await page.waitForTimeout(1500); // the browser fills saved passwords in shortly after load
+      const filled = await page.evaluate(() => [...document.querySelectorAll('form input[type=text], form input[type=password]')].every((i) => i.value));
+      if (filled) await page.locator('form [type=submit]').first().click();
+    },
+    async check(context) {
+      for (const page of context.pages()) {
+        const u = new URL(page.url());
+        if (u.host !== STUDENTFIRST_HOST || !/\/faces\/main\.xhtml$/.test(u.pathname) || !u.searchParams.get('jakarta.faces.Token')) continue;
+        const text = await page.evaluate(() => document.body?.innerText ?? '').catch(() => '');
+        const name = text.match(/Welcome\s+([^\n]+)/)?.[1]?.trim();
+        if (name) return { token: u.searchParams.get('jakarta.faces.Token'), name };
+      }
+      return null;
+    },
+    async save(context, found) {
+      // An account's folder only ever holds that person's sign-in.
+      const learn = loadSession();
+      if (learn?.displayName && !sameName(learn.displayName, found.name)) {
+        throw new Error(
+          `Signed in to StudentFirst as ${found.name}, but account ${currentAccount()} belongs to ${learn.displayName}. Nothing was saved.`,
+        );
+      }
+      const cookies = cookiesFor(await context.cookies(), STUDENTFIRST_HOST);
+      saveSession(
+        { cookies: plainCookies(cookies), token: found.token, displayName: found.name, savedAt: new Date().toISOString() },
+        sessionFile('studentfirst'),
+      );
+      return { displayName: found.name };
+    },
+  },
 };
 
 async function attempt(svc, { headless, timeoutMs, onOpen }) {
@@ -69,6 +146,7 @@ async function attempt(svc, { headless, timeoutMs, onOpen }) {
   try {
     const page = context.pages()[0] ?? (await context.newPage());
     await page.goto(svc.startUrl, { waitUntil: 'domcontentloaded' }).catch(() => {});
+    svc.prepare?.(page).catch(() => {});
     if (!headless) onOpen?.(browser);
     const result = await waitFor(context, () => svc.check(context), timeoutMs, () => failed);
     if (failed) throw failed;
@@ -124,6 +202,10 @@ export async function login(service, { silent = true, interactive = true, timeou
 export async function loginAccount(service, { account, newAccount = false, ...opts } = {}) {
   if (account && !accountExists(account)) {
     throw new Error(`No saved account "${account}". Saved: ${listAccounts().join(', ') || 'none'}. To add one, sign in as a new account.`);
+  }
+  if (service !== 'learnjcu' && (newAccount || (!account && listAccounts().length === 0))) {
+    // Accounts are named after the LearnJCU user, so they start there.
+    throw new Error(`Sign in to LearnJCU first (learnjcu_login, or \`npm run login\`); that saves the account, then sign in to ${LABELS[service]} for it.`);
   }
   if (newAccount || (!account && listAccounts().length === 0)) {
     const pending = startNewAccount();

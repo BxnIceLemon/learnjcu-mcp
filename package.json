@@ -1,7 +1,7 @@
 {
   "name": "learnjcu-mcp",
   "version": "0.1.0",
-  "description": "Unofficial MCP server and CLI for James Cook University's LearnJCU (Blackboard Learn Ultra)",
+  "description": "Unofficial MCP server and CLI for James Cook University's LearnJCU (Blackboard Learn Ultra), MyStudent and StudentFirst",
   "type": "module",
   "bin": {
     "learnjcu-mcp": "src/server.js",

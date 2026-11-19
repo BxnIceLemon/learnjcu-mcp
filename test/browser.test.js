@@ -49,3 +49,12 @@ test('reads the https handler from macOS settings, ignoring nested version block
   assert.equal(macHttpsHandler('{ LSHandlerRoleAll = "-"; LSHandlerURLScheme = https; }'), null);
   assert.equal(macHttpsHandler(''), null);
 });
+
+test('a hidden window sends the browser\'s own user agent, without "Headless"', async () => {
+  const { visibleUserAgent } = await import('../src/browser.js');
+  assert.equal(
+    visibleUserAgent('Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0'),
+    'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36 Edg/148.0.0.0',
+  );
+  assert.equal(visibleUserAgent('Mozilla/5.0 Chrome/1.0'), 'Mozilla/5.0 Chrome/1.0');
+});

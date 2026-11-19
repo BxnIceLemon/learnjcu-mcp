@@ -55,6 +55,11 @@ test('keeps each account\'s session and browser profile apart', async () => {
   assert.ok(acc.profileDir('chrome', 'ab12cd').endsWith(path.join('ab12cd', 'browser-profile-chrome')));
   assert.equal(acc.accountInfo('ab12cd').learnjcu.signedIn, true);
   assert.equal(acc.accountInfo('ef34gh').learnjcu.signedIn, false);
+  // MyStudent and StudentFirst sessions sit next to it, each in its own file.
+  assert.equal(acc.accountInfo('ab12cd').mystudent.signedIn, false);
+  await acc.withAccount('ab12cd', async () => saveSession({ cookies: [], expiresAt: 'x' }, acc.sessionFile('mystudent')));
+  assert.deepEqual(acc.accountInfo('ab12cd').mystudent, { signedIn: true, expiresAt: 'x' });
+  assert.equal(acc.accountInfo('ab12cd').learnjcu.signedIn, true);
 });
 
 test('a new account is named after the LearnJCU user, replacing an earlier sign-in of the same user', () => {

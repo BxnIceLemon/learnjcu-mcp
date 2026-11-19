@@ -142,6 +142,18 @@ function bundledChromium() {
   }
 }
 
+/**
+ * The user agent a hidden window should send: the browser's own, without
+ * "Headless". JCU's sign-in treats a "HeadlessChrome" agent as an unknown
+ * device and asks for an authenticator code, which a silent refresh can't give.
+ */
+export function visibleUserAgent(ua) {
+  return String(ua ?? '').replace(/HeadlessChrome\//, 'Chrome/');
+}
+
+// Learned from the first hidden window of each browser in this process.
+const userAgents = new Map();
+
 /** Opens a persistent context in the chosen browser. */
 export async function launch({ headless = false } = {}) {
   const browser = chooseBrowser();
@@ -153,7 +165,17 @@ export async function launch({ headless = false } = {}) {
   const errors = [];
   for (const target of attempts) {
     try {
-      const context = await chromium.launchPersistentContext(dir, { ...target, headless, viewport: null });
+      const key = JSON.stringify(target);
+      const userAgent = headless ? userAgents.get(key) : undefined;
+      let context = await chromium.launchPersistentContext(dir, { ...target, headless, viewport: null, ...(userAgent ? { userAgent } : {}) });
+      if (headless && !userAgent) {
+        // Read the real agent once, then reopen the window with it fixed.
+        const page = context.pages()[0] ?? (await context.newPage());
+        const fixed = visibleUserAgent(await page.evaluate(() => navigator.userAgent));
+        userAgents.set(key, fixed);
+        await context.close();
+        context = await chromium.launchPersistentContext(dir, { ...target, headless, viewport: null, userAgent: fixed });
+      }
       return { context, browser };
     } catch (e) {
       const msg = e.message.split('\n')[0];
@@ -181,4 +203,29 @@ export async function waitFor(context, check, timeoutMs = LOGIN_TIMEOUT_MS, stop
 
 export function plainCookies(cookies) {
   return cookies.map(({ name, value, domain, path, expires }) => ({ name, value, domain, path, expires }));
+}
+
+/**
+ * A hidden browser with a fresh, empty context (no profile), for rendering a
+ * page with cookies the caller adds. Close it with `close()`.
+ */
+export async function launchHidden() {
+  const browser = chooseBrowser();
+  const attempts = browser.executablePath
+    ? [{ executablePath: browser.executablePath }]
+    : [...(browser.fallbackChannels ?? [browser.channel]).map((channel) => ({ channel })), ...(browser.fallbackChannels ? bundledChromium() : [])];
+  const errors = [];
+  for (const target of attempts) {
+    try {
+      const b = await chromium.launch({ ...target, headless: true });
+      const probe = await b.newPage();
+      const userAgent = visibleUserAgent(await probe.evaluate(() => navigator.userAgent));
+      await probe.close();
+      const context = await b.newContext({ userAgent });
+      return { context, close: () => b.close() };
+    } catch (e) {
+      errors.push(`${target.executablePath ?? target.channel}: ${e.message.split('\n')[0]}`);
+    }
+  }
+  throw new Error(`Could not start ${browser.name}.\n${errors.join('\n')}`);
 }

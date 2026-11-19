@@ -10,12 +10,12 @@ Thanks for helping. A few rules keep this project safe for everyone who signs in
 
 ## Ground rules
 
-- **Writes stay narrow.** The only action that changes anything is submitting to an Ultra assignment, in `src/learnjcu-write.js`. A new write action needs a strong reason, and it must:
+- **Writes stay narrow.** The only action that changes anything is submitting to an Ultra assignment, in `src/learnjcu-write.js`. MyStudent and StudentFirst are read-only: MyStudent's dashboard is read with the POST requests its page uses to load its tiles, and nothing may click, save or submit there. A new write action needs a strong reason, and it must:
   - support a dry run
   - ask for confirmation in the CLI
   - in MCP, require `confirm: true` (and send nothing without it)
 - **Never test writes against real coursework.** Use dry runs.
-- **Stay on one host.** Session cookies must only ever go to `learn.jcu.edu.au`.
+- **Keep each session on its own site.** LearnJCU cookies only go to `learn.jcu.edu.au`, MyStudent cookies to `jcu.t1cloud.com` and StudentFirst cookies to `studentfirst.jcu.edu.sg`.
 - **No personal data in the repo.** Never commit session files, cookies, saved HTML pages, screenshots or tool output from your account. Build test fixtures by hand with fake names and IDs.
 - **Match the existing style.** Plain ES modules, no build step, small focused files.
 

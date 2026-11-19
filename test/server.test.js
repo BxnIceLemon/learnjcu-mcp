@@ -36,9 +36,23 @@ const WRITE_TOOLS = ['learnjcu_submit', 'learnjcu_update'];
 test('registers every read and write tool by default', async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
-  assert.equal(names.length, 18);
-  assert.ok(names.every((n) => n.startsWith('learnjcu_')), 'every tool is a learnjcu_ tool');
-  for (const n of ['learnjcu_login', 'learnjcu_list_submissions', ...WRITE_TOOLS]) {
+  assert.equal(names.length, 28);
+  assert.ok(names.every((n) => /^(learnjcu|mystudent|studentfirst)_/.test(n)), 'every tool belongs to a service');
+  for (const n of [
+    'learnjcu_login',
+    'learnjcu_list_submissions',
+    'mystudent_login',
+    'mystudent_status',
+    'mystudent_overview',
+    'mystudent_study_plan',
+    'studentfirst_login',
+    'studentfirst_status',
+    'studentfirst_overview',
+    'studentfirst_class_attendance',
+    'studentfirst_leave_applications',
+    'studentfirst_notices',
+    ...WRITE_TOOLS,
+  ]) {
     assert.ok(names.includes(n), n);
   }
   // Only the write tools are marked as changing anything.
@@ -71,6 +85,21 @@ test('tools fail with a login hint instead of crashing', async () => {
   assert.ok(m.isError);
   assert.match(m.text, /learnjcu_login tool/);
   assert.match(m.text, /npm run login/);
+});
+
+test('MyStudent and StudentFirst tools ask for their own sign-in', async () => {
+  fs.mkdirSync(path.join(home, 'accounts', 'zz99zz'), { recursive: true });
+  try {
+    const m = await call('mystudent_overview', { account: 'zz99zz' });
+    assert.ok(m.isError);
+    assert.match(m.text, /Not signed in to MyStudent.*mystudent_login/);
+    const s = await call('studentfirst_overview', { account: 'zz99zz' });
+    assert.ok(s.isError);
+    assert.match(s.text, /Not signed in to StudentFirst.*studentfirst_login/);
+    assert.equal(JSON.parse((await call('studentfirst_status', { account: 'zz99zz' })).text).signedIn, false);
+  } finally {
+    fs.rmSync(path.join(home, 'accounts', 'zz99zz'), { recursive: true, force: true });
+  }
 });
 
 test('raw API tool refuses other hosts and non-public paths', async () => {

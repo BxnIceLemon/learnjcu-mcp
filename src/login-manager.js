@@ -152,6 +152,6 @@ export async function withSessionRefresh(run, account, { rerun }) {
     if (!(e instanceof SessionError) || !account) throw e;
     if (!(await silentRefresh(e.service, account))) throw e;
     if (rerun) return run();
-    throw new Error(`The LearnJCU session for ${account} had expired and was renewed silently; nothing was sent. Call this tool again to continue.`);
+    throw new Error(`The ${LABELS[e.service] ?? e.service} session for ${account} had expired and was renewed silently; nothing was sent. Call this tool again to continue.`);
   }
 }

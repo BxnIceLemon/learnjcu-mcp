@@ -5,23 +5,35 @@ import { parseArgs } from 'node:util';
 import { createInterface } from 'node:readline/promises';
 import * as mv from './learnjcu.js';
 import * as mvWrite from './learnjcu-write.js';
+import * as mystudent from './mystudent.js';
+import * as studentfirst from './studentfirst.js';
 import { SessionError } from './client.js';
 import { loadSession } from './session.js';
-import { listAccounts, accountInfo, selectAccount, currentAccount, AccountChoiceError } from './accounts.js';
-import { login } from './auth.js';
-import { runLoginCli, loginOptions, chooseAccountCli, LOGIN_OPTIONS } from './login-cli.js';
+import { listAccounts, accountInfo, selectAccount, currentAccount, AccountChoiceError, SERVICES } from './accounts.js';
+import { login, LABELS } from './auth.js';
+import { runLoginCli, loginOptions, loginService, chooseAccountCli, LOGIN_OPTIONS } from './login-cli.js';
 
 const HELP = `Usage: learnjcu <command> [options]
 
 Account
   login                                   Sign in to LearnJCU in a browser window
       [--new-account] signs in someone else and saves them as another account
+      [--service mystudent|studentfirst] signs in to MyStudent or StudentFirst instead
   status                                  Show whether you are signed in
   accounts                                List saved accounts
 
-Browse
+Browse LearnJCU
   upcoming [--days N]                     Gradebook items due in the next N days (default 14)
   submissions <course> <assignment>       Settings of an assignment and your attempts on it
+
+Browse MyStudent
+  mystudent                               Dashboard: details, study plan, payments, tasks, forms
+  study-plan                              Your course and the status of every subject in it
+
+Browse StudentFirst (JCU Singapore)
+  classes                                 Classes in the next 8 days and overall attendance
+  attendance [class]                      Every session of your classes and whether you attended
+  leave                                   Your leave applications
 
 Actions (ask for confirmation)
   submit <course> <assignment> [file...] [-m TEXT] [--dry-run] [--yes]
@@ -73,8 +85,9 @@ async function confirm(question, yes) {
 
 const commands = {
   async login(_, o) {
-    const opts = { ...loginOptions(o), ...(await chooseAccountCli(o, { login: true })) };
-    if ((await runLoginCli('learnjcu', opts)) !== 0) throw new Error('Login was not completed');
+    const service = loginService(o);
+    const opts = { ...loginOptions(o), ...(await chooseAccountCli(o, { login: service === 'learnjcu' })) };
+    if ((await runLoginCli(service, opts)) !== 0) throw new Error('Login was not completed');
   },
 
   async status(_, o) {
@@ -95,7 +108,11 @@ const commands = {
     if (o.json) return all;
     if (!all.length) return console.log('No saved accounts. Run: learnjcu login');
     for (const a of all) {
-      const m = a.learnjcu.signedIn ? `LearnJCU until ${fmtDate(a.learnjcu.expiresAt)}` : 'LearnJCU not signed in';
+      const m = SERVICES.map((s) => {
+        const x = a[s];
+        if (!x.signedIn) return `${LABELS[s]} not signed in`;
+        return x.expiresAt ? `${LABELS[s]} until ${fmtDate(x.expiresAt)}` : `${LABELS[s]} signed in`;
+      }).join(';  ');
       console.log(`${a.account}${a.displayName && a.displayName !== a.account ? `  ${a.displayName}` : ''}  ${m}`);
     }
   },
@@ -105,6 +122,52 @@ const commands = {
     if (o.json) return r;
     if (!r.items.length) return console.log('Nothing due.');
     for (const i of r.items) console.log(`${fmtDate(i.due)}  ${i.item}  (${i.course})${i.status ? `  [${i.status}]` : ''}`);
+  },
+
+  async mystudent(_, o) {
+    const r = await mystudent.overview();
+    if (o.json) return r;
+    for (const t of r.tiles) {
+      console.log(`${t.tile}${t.headline ? `: ${t.count !== undefined ? `${t.count} ` : ''}${t.headline}` : ''}`);
+      for (const tab of t.tabs) {
+        if (!tab.items) continue;
+        if (t.tabs.length > 1) console.log(`  ${tab.tab}`);
+        for (const it of tab.items) console.log(`    ${[it.header, ...(it.lines ?? [])].filter(Boolean).join(' — ')}`);
+      }
+    }
+  },
+
+  async 'study-plan'(_, o) {
+    const r = await mystudent.studyPlan();
+    if (o.json) return r;
+    console.log(`${r.course} (${[r.creditPoints, r.campus].filter(Boolean).join(', ')})`);
+    if (r.advancedStandingCreditPoints) console.log(`Advanced standing: ${r.advancedStandingCreditPoints} credit points`);
+    for (const s of r.subjects) console.log(`  ${s.code}  ${s.name}  [${s.kind}] ${s.status}`);
+  },
+
+  async classes(_, o) {
+    const r = await studentfirst.overview();
+    if (o.json) return r;
+    const a = r.attendance;
+    console.log(`Class attendance ${a.class.percent}%, campus attendance ${a.campus.percent}% (minimum ${a.class.minimum ?? 90}%; updated ${a.lastUpdated ?? '?'})`);
+    if (!r.upcoming.length) return console.log('No classes in the next 8 days.');
+    for (const c of r.upcoming) console.log(`  ${c.date}  ${c.time}  ${c.class}  ${c.location}`);
+  },
+
+  async attendance(args, o) {
+    const r = await studentfirst.classAttendance({ classCode: args[0] });
+    if (o.json) return r;
+    for (const c of r.classes) {
+      console.log(`${c.class}  ${c.title}: ${c.present}/${c.total - c.notRecorded} recorded sessions attended${c.absent ? `, ${c.absent} absent` : ''}`);
+      for (const s of c.sessions) if (s.status === 'absent') console.log(`    absent ${s.date} ${s.time} ${s.location ?? ''}`);
+    }
+  },
+
+  async leave(_, o) {
+    const r = await studentfirst.leaveApplications();
+    if (o.json) return r;
+    if (!r.applications.length) return console.log('No leave applications.');
+    for (const l of r.applications) console.log(`  ${l.id}  ${l.start} – ${l.end}  ${l.status}  ${l.details}`);
   },
 
   async submissions(args, o) {
@@ -178,26 +241,41 @@ async function main(argv) {
     try {
       return await runOnce();
     } catch (e) {
-      if (!(e instanceof SessionError) || cmd === 'login' || !(await recoverSession(parsed.values))) throw e;
+      if (!(e instanceof SessionError) || cmd === 'login' || !(await recoverSession(parsed.values, e.service))) throw e;
       return await runOnce();
     }
   } catch (e) {
-    console.error(e instanceof SessionError ? `${e.message.replace(/Call the learnjcu_login tool, or run `npm run login` in the learnjcu-mcp folder\./, 'Run: learnjcu login')}` : e.message);
+    console.error(
+      e instanceof SessionError
+        ? e.message
+            .replace(/Call the learnjcu_login tool, or run `npm run login` in the learnjcu-mcp folder\./, 'Run: learnjcu login')
+            .replace(/Call the \w+_login tool, or run `([^`]+)`\./, 'Run: $1')
+        : e.message,
+    );
     return e instanceof UsageError ? 2 : 1;
   }
 }
 
 // On an expired session: refresh silently, and if that isn't enough and we're
 // in a terminal, offer to sign in again. Returns true to retry.
-async function recoverSession(o) {
+async function recoverSession(o, service = 'learnjcu') {
   if (process.env.LEARNJCU_NO_AUTO_LOGIN === '1') return false;
-  process.stderr.write('LearnJCU session expired; refreshing…\n');
-  const quiet = await login('learnjcu', { interactive: false }).catch(() => ({ signedIn: false }));
+  const label = LABELS[service] ?? service;
+  let account;
+  try {
+    account = currentAccount();
+  } catch {
+    return false;
+  }
+  // MyStudent and StudentFirst sign in for an account LearnJCU created.
+  if (!account && service !== 'learnjcu') return false;
+  process.stderr.write(`${label} session expired or missing; refreshing…\n`);
+  const quiet = await login(service, { interactive: false }).catch(() => ({ signedIn: false }));
   if (quiet.signedIn) return true;
   if (!process.stdin.isTTY) return false;
-  const opts = { ...loginOptions(o), silent: false };
-  if (!(await confirm('Sign in to LearnJCU again in your browser?', false))) return false;
-  return (await runLoginCli('learnjcu', opts)) === 0;
+  const opts = { ...loginOptions(o), silent: false, ...(account ? { account } : {}) };
+  if (!(await confirm(`Sign in to ${label} in your browser?`, false))) return false;
+  return (await runLoginCli(service, opts)) === 0;
 }
 
 process.exitCode = await main(process.argv.slice(2));

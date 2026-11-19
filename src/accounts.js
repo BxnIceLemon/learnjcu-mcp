@@ -1,8 +1,10 @@
-// Saved accounts. Each account has its own folder with its LearnJCU session
-// and its own browser profile (which holds the "Stay signed in" state), so two
-// people's sign-ins never mix:
+// Saved accounts. Each account has its own folder with its sessions (LearnJCU,
+// MyStudent, StudentFirst) and its own browser profile (which holds the JCU
+// sign-in state), so two people's sign-ins never mix:
 //
 //   ~/.learnjcu-mcp/accounts/<LearnJCU username>/session.json
+//                                             /mystudent.json
+//                                             /studentfirst.json
 //                                             /browser-profile[-<browser>]
 //
 // Which account a call uses: the one passed explicitly (withAccount), else the
@@ -16,7 +18,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { DATA_DIR } from './config.js';
 
 export const ACCOUNTS_DIR = path.join(DATA_DIR, 'accounts');
-const FILES = { learnjcu: 'session.json' };
+const FILES = { learnjcu: 'session.json', mystudent: 'mystudent.json', studentfirst: 'studentfirst.json' };
+export const SERVICES = Object.keys(FILES);
 const PROFILE = 'browser-profile';
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$/;
 const PENDING = '.new-';
@@ -126,12 +129,13 @@ export function hasBrowserProfile(name) {
 
 /** What is saved for one account, without any secrets. */
 export function accountInfo(name) {
-  const m = readJson(path.join(dirOf(name), FILES.learnjcu));
+  const saved = Object.fromEntries(SERVICES.map((s) => [s, readJson(path.join(dirOf(name), FILES[s]))]));
+  const m = saved.learnjcu;
   return {
     account: name,
     userName: m?.userName,
     displayName: m?.displayName,
-    learnjcu: m ? { signedIn: true, expiresAt: m.expiresAt } : { signedIn: false },
+    ...Object.fromEntries(SERVICES.map((s) => [s, saved[s] ? { signedIn: true, expiresAt: saved[s].expiresAt } : { signedIn: false }])),
     selected: name === selected || undefined,
   };
 }

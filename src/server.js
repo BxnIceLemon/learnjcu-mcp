@@ -5,6 +5,8 @@ import { ElicitResultSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 import * as learnjcu from './learnjcu.js';
 import * as learnjcuWrite from './learnjcu-write.js';
+import * as mystudent from './mystudent.js';
+import * as studentfirst from './studentfirst.js';
 import { loadSession } from './session.js';
 import { agentLogin, pendingLogin, withSessionRefresh } from './login-manager.js';
 import { checkForUpdate, applyUpdate } from './update.js';
@@ -16,6 +18,7 @@ import {
   selectAccount,
   selectedAccount,
   withAccount,
+  sessionFile,
   AccountChoiceError,
 } from './accounts.js';
 
@@ -202,19 +205,34 @@ function statusOf(service, account, fn) {
   return withAccount(name, () => ({ account: name, ...fn(), loginInProgress: pendingLogin(service, name) }));
 }
 
-tool(
-  'learnjcu_status',
-  'Check whether a LearnJCU login session is saved and when it expires. With several saved accounts and none chosen, it lists them all.',
-  { account: accountParam },
-  ({ account }) =>
-    statusOf('learnjcu', account, () => {
-      const s = loadSession();
-      if (!s) return { signedIn: false, fix: 'Call the learnjcu_login tool, or run `npm run login` in the learnjcu-mcp folder.' };
-      return { signedIn: true, userName: s.userName, savedAt: s.savedAt, expiresAt: s.expiresAt };
-    }),
-  undefined,
-  { accounts: false },
-);
+const SERVICES = [
+  ['learnjcu', 'LearnJCU'],
+  ['mystudent', 'MyStudent'],
+  ['studentfirst', 'StudentFirst'],
+];
+
+for (const [service, label] of SERVICES) {
+  tool(
+    `${service}_status`,
+    `Check whether a ${label} session is saved${service === 'studentfirst' ? '' : ' and when it expires'}. With several saved accounts and none chosen, it lists them all.`,
+    { account: accountParam },
+    ({ account }) =>
+      statusOf(service, account, () => {
+        const s = loadSession(sessionFile(service));
+        if (!s) return { signedIn: false, fix: `Call the ${service}_login tool.` };
+        return {
+          signedIn: true,
+          userName: s.userName,
+          displayName: s.displayName,
+          savedAt: s.savedAt,
+          expiresAt: s.expiresAt,
+          ...(service === 'studentfirst' ? { note: 'StudentFirst sessions end after a while without use; the tools refresh them by themselves when they can.' } : {}),
+        };
+      }),
+    undefined,
+    { accounts: false },
+  );
+}
 
 const waitSeconds = z
   .number()
@@ -224,12 +242,22 @@ const waitSeconds = z
   .optional()
   .describe('How long to wait for the sign-in to finish before returning (default 45, which fits the 60 s default tool timeout of Codex)');
 
-for (const [service, label] of [['learnjcu', 'LearnJCU']]) {
+const LOGIN_NOTES = {
+  learnjcu: '',
+  mystudent: 'MyStudent uses the same JCU single sign-on as LearnJCU, so this is usually silent. ',
+  studentfirst:
+    'StudentFirst (JCU Singapore) has its own user name and password, not the JCU single sign-on. When a window opens, ask the user to sign in there ' +
+    'and to let the browser save the password, so later refreshes need nothing from them. ',
+};
+
+for (const [service, label] of SERVICES) {
   tool(
     `${service}_login`,
     `Sign in to ${label} or refresh an expired session. Call this whenever a ${label} tool says the session expired or you are not signed in. ` +
+      LOGIN_NOTES[service] +
       'Each saved account has its own sign-in; with several, pass account (the user is asked when you leave it out). ' +
-      'It first refreshes silently (a few seconds, no window). If the user has to sign in, it opens the University sign-in page in their default browser: ' +
+      (service === 'learnjcu' ? '' : 'Accounts are created by learnjcu_login; sign in to LearnJCU first if none is saved. ') +
+      'It first refreshes silently (a few seconds, no window). If the user has to sign in, it opens the sign-in page in their default browser: ' +
       'tell the user a browser window opened and ask them to sign in there. If the result says waitingForUser, call again after the user says they are done. ' +
       'Never ask the user for their password; they type it in the browser.',
     {
@@ -330,6 +358,59 @@ tool(
     until: z.string().optional().describe('ISO date, default since + 28 days'),
   },
   learnjcu.calendar,
+);
+
+// --- MyStudent
+
+tool(
+  'mystudent_overview',
+  'Show the MyStudent dashboard (JCU\'s student administration portal): your contact details, study plan, class registrations, ' +
+    'outstanding payments, tasks to complete, today\'s calendar, and forms in progress or available. ' +
+    'Use when the user asks about their enrolment, fees, tasks or forms in MyStudent, or their student record.',
+  {},
+  () => mystudent.overview(),
+);
+
+tool(
+  'mystudent_study_plan',
+  'Show your course in MyStudent and every subject in its structure with its status: enrolled (and in which study period), completed, ' +
+    'exempt or credited, or planned for a later period, plus advanced standing. Takes about 10 seconds (the page is rendered in a hidden browser). ' +
+    'Use when the user asks about their degree progress, which subjects are left, or what they are enrolled in.',
+  {},
+  () => mystudent.studyPlan(),
+);
+
+// --- StudentFirst
+
+tool(
+  'studentfirst_overview',
+  'Show StudentFirst (JCU Singapore): classes in the next 8 days with time and room, overall class and campus attendance against the 90% minimum, ' +
+    'and each class with how many sessions were attended. Use when the user asks about their timetable, next classes, rooms or attendance at JCU Singapore.',
+  {},
+  () => studentfirst.overview(),
+);
+
+tool(
+  'studentfirst_class_attendance',
+  'List every session of your StudentFirst classes with date, time, room and whether attendance was recorded as present, absent or not yet recorded. ' +
+    'Use when the user asks which classes they missed or the attendance of one subject.',
+  { classCode: z.string().optional().describe('A subject code ("AB1001") or class code ("AB1001-TA"); omit for all classes') },
+  studentfirst.classAttendance,
+);
+
+tool(
+  'studentfirst_leave_applications',
+  'List your StudentFirst leave applications with dates and status. Use when the user asks about leave they applied for. ' +
+    'This tool does not apply for leave; the user does that on the StudentFirst website.',
+  {},
+  () => studentfirst.leaveApplications(),
+);
+
+tool(
+  'studentfirst_notices',
+  'Show the StudentFirst notices, such as updates to the JCU Singapore student contract and public holidays.',
+  {},
+  () => studentfirst.notices(),
 );
 
 const mvAssignment = z

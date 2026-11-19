@@ -6,6 +6,7 @@ import { sessionFile, currentAccount, accountExists, accountInfo, listAccounts, 
 
 export const LOGIN_OPTIONS = {
   'no-silent': { type: 'boolean' },
+  service: { type: 'string' },
   account: { type: 'string' },
   'new-account': { type: 'boolean' },
 };
@@ -72,13 +73,22 @@ export async function chooseAccountCli(values = {}, { login = false } = {}) {
   }
 }
 
+/** The service named by --service (default LearnJCU). */
+export function loginService(values = {}) {
+  const service = values.service ?? 'learnjcu';
+  if (!LABELS[service]) throw new Error(`Unknown --service "${service}". Use one of: ${Object.keys(LABELS).join(', ')}`);
+  return service;
+}
+
 export async function runLoginCli(service, opts) {
-  const label = LABELS[service];
+  let label = LABELS[service];
   try {
     let o = opts;
     if (!o) {
       const values = parseArgs({ args: process.argv.slice(2), options: LOGIN_OPTIONS }).values;
-      o = { ...loginOptions(values), ...(await chooseAccountCli(values, { login: true })) };
+      service = loginService(values);
+      label = LABELS[service];
+      o = { ...loginOptions(values), ...(await chooseAccountCli(values, { login: service === 'learnjcu' })) };
     } else if (o.account === undefined && !o.newAccount) {
       o = { ...o, ...(await chooseAccountCli({}, { login: true })) };
     }
@@ -98,8 +108,9 @@ export async function runLoginCli(service, opts) {
       console.error(r.reason ?? 'Sign-in was not completed.');
       return 1;
     }
-    const how = r.mode === 'silent' ? 'Refreshed silently' : 'Signed in';
-    console.log(`${how}${r.userName ? ` as ${r.userName}` : ''} (account ${r.account}). Session saved to ${sessionFile(service, r.account)}`);
+    const how = r.mode === 'silent' ? `Refreshed the ${label} session silently` : `Signed in to ${label}`;
+    const who = r.userName ?? r.displayName;
+    console.log(`${how}${who ? ` as ${who}` : ''} (account ${r.account}). Session saved to ${sessionFile(service, r.account)}`);
     if (r.expiresAt) console.log(`Valid until about ${new Date(r.expiresAt).toLocaleString()}.`);
     return 0;
   } catch (e) {
